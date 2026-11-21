@@ -44,11 +44,12 @@ exports.createGuess = async (req, res, next) => {
 };
 
 // Contact messages are emailed directly and are not retained by the server.
-exports.createContact = async (req, res, next) => {
+exports.createContact = async (req, res) => {
   try {
     await sendContactEmail({ ...req.contactData, created_at: timestampUtc() });
   } catch (err) {
-    return next(err);
+    console.error('MAIL ERROR:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to send your message. Please try again later.' });
   }
   return res.status(201).json({ ok: true, message: 'Thank you. We will be in touch soon.' });
 };

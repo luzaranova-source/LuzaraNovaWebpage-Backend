@@ -3,7 +3,7 @@ const env = require('../config/env');
 
 let transporter = null;
 function getTransporter() {
-  if (!env.mail.user || !env.mail.pass || !env.mail.to) {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || !process.env.NOTIFY_TO) {
     const error = new Error('Email delivery is not configured.');
     error.statusCode = 503;
     throw error;
@@ -11,7 +11,10 @@ function getTransporter() {
   if (!transporter) {
     transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: { user: env.mail.user, pass: env.mail.pass },
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 15000,
     });
   }
   return transporter;
@@ -56,8 +59,8 @@ exports.sendGuessEmail = async (g) => {
 
 exports.sendContactEmail = async (m) => {
   await deliver({
-    from: `"${env.mail.fromName}" <${env.mail.user}>`,
-    to: env.mail.to,
+    from: `"${env.mail.fromName}" <${process.env.EMAIL_USER}>`,
+    to: process.env.NOTIFY_TO,
     replyTo: m.email,
     subject: `New enquiry from ${m.name}`,
     text: `Name: ${m.name}\nEmail: ${m.email}\nPhone: ${m.phone || '-'}\nInterested in: ${m.interest || '-'}\n\nMessage:\n${m.message}\n\nReceived: ${m.created_at} UTC`,
