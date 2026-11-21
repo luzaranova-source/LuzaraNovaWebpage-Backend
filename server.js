@@ -20,8 +20,8 @@ app.use(errorHandler);
 
 app.listen(env.port, '0.0.0.0', () => {
   console.log(`Luzara Nova listening on port ${env.port}`);
-  if (!env.mail.user || !env.mail.pass || !env.mail.to) {
-    console.warn('Email is not configured; set EMAIL_USER, EMAIL_PASS, and NOTIFY_TO to enable submissions.');
+  if (!env.mail.resendApiKey || !env.mail.to) {
+    console.warn('Contact email is not configured; set RESEND_API_KEY and NOTIFY_TO to enable submissions.');
   }
   if (env.isProd && env.corsOrigins.length === 0) {
     console.warn('CORS_ORIGIN is not configured; browser requests from the website will be blocked.');

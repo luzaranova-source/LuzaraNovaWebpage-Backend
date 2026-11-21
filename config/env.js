@@ -16,6 +16,7 @@ module.exports = {
     user: process.env.EMAIL_USER || '',
     pass: process.env.EMAIL_PASS || '',
     fromName: process.env.EMAIL_FROM_NAME || 'Luzara Nova Website',
+    resendApiKey: process.env.RESEND_API_KEY || '',
     to: process.env.NOTIFY_TO || '',
   },
 };

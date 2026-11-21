@@ -58,13 +58,26 @@ exports.sendGuessEmail = async (g) => {
 };
 
 exports.sendContactEmail = async (m) => {
-  await deliver({
-    from: `"${env.mail.fromName}" <${process.env.EMAIL_USER}>`,
-    to: process.env.NOTIFY_TO,
-    replyTo: m.email,
-    subject: `New enquiry from ${m.name}`,
-    text: `Name: ${m.name}\nEmail: ${m.email}\nPhone: ${m.phone || '-'}\nInterested in: ${m.interest || '-'}\n\nMessage:\n${m.message}\n\nReceived: ${m.created_at} UTC`,
-    html: `
+  if (!env.mail.resendApiKey || !env.mail.to) {
+    throw new Error('Resend email delivery is not configured. Set RESEND_API_KEY and NOTIFY_TO.');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.mail.resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'Luzara Nova <onboarding@resend.dev>',
+        to: [env.mail.to],
+        reply_to: m.email,
+        subject: `New enquiry from ${m.name}`,
+        text: `Name: ${m.name}\nEmail: ${m.email}\nPhone: ${m.phone || '-'}\nInterested in: ${m.interest || '-'}\n\nMessage:\n${m.message}\n\nReceived: ${m.created_at} UTC`,
+        html: `
       <div style="font-family:Arial,sans-serif;max-width:560px">
         <h2 style="margin:0 0 12px">New enquiry for Luzara Nova</h2>
         <table cellpadding="6" style="border-collapse:collapse">
@@ -77,6 +90,17 @@ exports.sendContactEmail = async (m) => {
         <p style="white-space:pre-wrap;margin:0">${esc(m.message)}</p>
         <p style="color:#777;font-size:12px;margin-top:20px">Received ${esc(m.created_at)} UTC</p>
       </div>`,
-  });
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const responseBody = await response.text();
+      throw new Error(`Resend API request failed with status ${response.status}: ${responseBody}`);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+
   return true;
 };
