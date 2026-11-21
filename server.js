@@ -2,7 +2,6 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const env = require('./config/env');
-require('./config/db'); // creates the database and tables on start
 const api = require('./routes/api');
 const errorHandler = require('./middleware/errorHandler');
 
@@ -19,7 +18,12 @@ app.use('/api', (req, res) => res.status(404).json({ ok: false, message: 'Not fo
 app.get('/', (req, res) => res.json({ ok: true, service: 'Luzara Nova API' }));
 app.use(errorHandler);
 
-app.listen(env.port, () => {
-  console.log(`Luzara Nova running on http://localhost:${env.port}`);
-  if (!env.mail.pass) console.warn('EMAIL_PASS is empty: guesses will be saved but not emailed yet.');
+app.listen(env.port, '0.0.0.0', () => {
+  console.log(`Luzara Nova listening on port ${env.port}`);
+  if (!env.mail.user || !env.mail.pass || !env.mail.to) {
+    console.warn('Email is not configured; set EMAIL_USER, EMAIL_PASS, and NOTIFY_TO to enable submissions.');
+  }
+  if (env.isProd && env.corsOrigins.length === 0) {
+    console.warn('CORS_ORIGIN is not configured; browser requests from the website will be blocked.');
+  }
 });

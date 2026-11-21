@@ -3,7 +3,11 @@ const env = require('../config/env');
 
 let transporter = null;
 function getTransporter() {
-  if (!env.mail.user || !env.mail.pass) return null;
+  if (!env.mail.user || !env.mail.pass || !env.mail.to) {
+    const error = new Error('Email delivery is not configured.');
+    error.statusCode = 503;
+    throw error;
+  }
   if (!transporter) {
     transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -15,14 +19,20 @@ function getTransporter() {
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-// Returns true if sent, false if email is not configured. Throws on send failure.
-exports.sendGuessEmail = async (g) => {
-  const t = getTransporter();
-  if (!t) {
-    console.warn('Email not configured (EMAIL_PASS empty). Guess saved to the database only.');
-    return false;
+async function deliver(message) {
+  try {
+    await getTransporter().sendMail(message);
+  } catch (cause) {
+    if (cause.statusCode === 503) throw cause;
+    const error = new Error('Email delivery failed.');
+    error.statusCode = 502;
+    error.cause = cause;
+    throw error;
   }
-  await t.sendMail({
+}
+
+exports.sendGuessEmail = async (g) => {
+  await deliver({
     from: `"${env.mail.fromName}" <${env.mail.user}>`,
     to: env.mail.to,
     replyTo: g.email,
@@ -45,12 +55,7 @@ exports.sendGuessEmail = async (g) => {
 };
 
 exports.sendContactEmail = async (m) => {
-  const t = getTransporter();
-  if (!t) {
-    console.warn('Email not configured (EMAIL_PASS empty). Message saved to the database only.');
-    return false;
-  }
-  await t.sendMail({
+  await deliver({
     from: `"${env.mail.fromName}" <${env.mail.user}>`,
     to: env.mail.to,
     replyTo: m.email,

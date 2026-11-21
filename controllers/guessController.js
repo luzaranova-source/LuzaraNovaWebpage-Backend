@@ -1,13 +1,14 @@
-const db = require('../config/db');
 const clues = require('../config/clues');
 const env = require('../config/env');
-const { sendGuessEmail, sendContactEmail } =require('../utils/mailer');
+const { sendGuessEmail, sendContactEmail } = require('../utils/mailer');
 
-const insert = db.prepare('INSERT INTO guesses (name, phone, email, guess) VALUES (@name, @phone, @email, @guess)');
-const findById = db.prepare('SELECT * FROM guesses WHERE id = ?');
-const findDup = db.prepare('SELECT id FROM guesses WHERE email = ? AND lower(guess) = lower(?)');
-const markEmailed = db.prepare('UPDATE guesses SET emailed = 1 WHERE id = ?');
-const listAll = db.prepare('SELECT * FROM guesses ORDER BY id DESC');
+const MAX_RECENT_GUESSES = 1000;
+const recentGuesses = [];
+let nextGuessId = 1;
+
+function timestampUtc() {
+  return new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+}
 
 // Public: launch date + clues (locked clue text is never included)
 exports.getConfig = (req, res) => {
@@ -22,48 +23,38 @@ exports.getConfig = (req, res) => {
   });
 };
 
-// Public: save a guess, then email it to the Luzara Nova inbox
-exports.createGuess = (req, res, next) => {
-  try {
-    const d = req.guessData;
-    if (findDup.get(d.email, d.guess)) {
-      return res.status(200).json({ ok: true, message: 'We already have this guess from you. Good luck!' });
-    }
-    const { lastInsertRowid } = insert.run(d);
-    const row = findById.get(lastInsertRowid);
-
-    sendGuessEmail(row)
-      .then((sent) => { if (sent) markEmailed.run(row.id); })
-      .catch((err) => console.error('Email failed (guess is still saved):', err.message));
-
-    res.status(201).json({ ok: true, message: 'Guess received. Watch your phone and email on launch day.' });
-  } catch (err) {
-    next(err);
+// Email each guess and keep a bounded, process-local list for the admin API.
+exports.createGuess = async (req, res, next) => {
+  const d = req.guessData;
+  if (recentGuesses.some((g) => g.email === d.email && g.guess.toLowerCase() === d.guess.toLowerCase())) {
+    return res.status(200).json({ ok: true, message: 'We already have this guess from you. Good luck!' });
   }
+
+  const row = { id: nextGuessId, ...d, emailed: 1, created_at: timestampUtc() };
+  try {
+    await sendGuessEmail(row);
+  } catch (err) {
+    return next(err);
+  }
+
+  recentGuesses.unshift(row);
+  if (recentGuesses.length > MAX_RECENT_GUESSES) recentGuesses.pop();
+  nextGuessId += 1;
+  return res.status(201).json({ ok: true, message: 'Guess received. Watch your phone and email on launch day.' });
 };
 
-// Public: save a contact message from the main site, then email it
-const insertContact = db.prepare('INSERT INTO contact_messages (name, email, phone, interest, message) VALUES (@name, @email, @phone, @interest, @message)');
-const findContact = db.prepare('SELECT * FROM contact_messages WHERE id = ?');
-const markContactEmailed = db.prepare('UPDATE contact_messages SET emailed = 1 WHERE id = ?');
-
-exports.createContact = (req, res, next) => {
+// Contact messages are emailed directly and are not retained by the server.
+exports.createContact = async (req, res, next) => {
   try {
-    const { lastInsertRowid } = insertContact.run(req.contactData);
-    const row = findContact.get(lastInsertRowid);
-
-    sendContactEmail(row)
-      .then((sent) => { if (sent) markContactEmailed.run(row.id); })
-      .catch((err) => console.error('Email failed (message is still saved):', err.message));
-
-    res.status(201).json({ ok: true, message: 'Thank you. We will be in touch soon.' });
+    await sendContactEmail({ ...req.contactData, created_at: timestampUtc() });
   } catch (err) {
-    next(err);
+    return next(err);
   }
+  return res.status(201).json({ ok: true, message: 'Thank you. We will be in touch soon.' });
 };
 
 // Admin
-exports.listGuesses = (req, res) => res.json({ ok: true, guesses: listAll.all() });
+exports.listGuesses = (req, res) => res.json({ ok: true, guesses: recentGuesses });
 
 exports.exportCsv = (req, res) => {
   const cell = (v) => {
@@ -71,9 +62,8 @@ exports.exportCsv = (req, res) => {
     if (/^[=+\-@]/.test(s)) s = `'${s}`; // stop spreadsheet formula injection
     return `"${s.replace(/"/g, '""')}"`;
   };
-  const rows = listAll.all();
   const head = ['id', 'name', 'phone', 'email', 'guess', 'emailed', 'created_at'];
-  const csv = [head.join(',')].concat(rows.map((r) => head.map((h) => cell(r[h])).join(','))).join('\n');
+  const csv = [head.join(',')].concat(recentGuesses.map((r) => head.map((h) => cell(r[h])).join(','))).join('\n');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="luzara-nova-guesses.csv"');
   res.send(csv);
